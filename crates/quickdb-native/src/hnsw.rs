@@ -377,9 +377,14 @@ struct BatchGuard<'a> {
     base: usize,
     was_packed: bool,
     saved: Vec<(usize, usize, Vec<usize>)>,
+    // Set once the batch is published; dropping the guard then only frees `saved`.
+    committed: bool,
 }
 impl Drop for BatchGuard<'_> {
     fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
         for (node, level, links) in self.saved.drain(..) {
             self.h.links[node][level] = links;
         }
@@ -977,6 +982,7 @@ impl Hnsw {
                 base,
                 was_packed,
                 saved: Vec::new(),
+                committed: false,
             };
             for &(id, vector) in batch {
                 let node = guard.h.ids.len();
@@ -1098,7 +1104,9 @@ impl Hnsw {
                     }
                 }
             });
-            std::mem::forget(guard);
+            // Disarm the rollback but still free the saved lists (`mem::forget` leaked them).
+            guard.committed = true;
+            drop(guard);
         }
         if let Some(total) = total {
             if option_env!("QUICKDB_DISTANCE_COUNTER").is_some() {

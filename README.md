@@ -7,8 +7,8 @@ QDB started from Rabie Qotb's concept of a sovereign "single Rust binary" whose 
 reached over a network (the concept gave that role to CozoDB). We built both ways and measured them against each other;
 the native engine won, and CozoDB stays here as a comparison adapter.
 
-> **Status: 0.1.0, pre-release.** Built and measured, not yet reviewed line by line by a person, no fuzzing, no released
-> version. Read "Limits" before relying on it.
+> **Status: 0.1.0, pre-release.** Built, measured and fuzzed (4 targets; one memory leak found and fixed), not yet
+> reviewed line by line by a person, no released version. Read "Limits" before relying on it.
 
 ## What is in the box
 
@@ -20,6 +20,7 @@ the native engine won, and CozoDB stays here as a comparison adapter.
 | `crates/quickdb-native` | the engine, `NativeStore`: bundled SQLite for rows and edges, a persisted pure-Rust HNSW vector index tied to the store, full-text BM25 search with Arabic folding, and hybrid text + vector search |
 | `crates/quickdb-bench` | benchmark harness generic over `Store`, an exact reference store, corpus and question loaders |
 | `crates/quickdb-cozo` · `-sqlitevec` · `-sqlitevec-ann` · `-vec1` · `-lance` · `-surreal` | comparison adapters for CozoDB, SQLite + `sqlite-vec` 0.1.9, `sqlite-vec` DiskANN, SQLite `vec1`, LanceDB, SurrealDB (each its own cargo workspace) |
+| `fuzz/` | cargo-fuzz targets: snapshot decoding, damaged snapshots, damaged stores on open, and random sequences of `Store` operations |
 | `scripts/corpus_prepare.py` · `corpus_questions.py` · `reference_ann.py` | corpus chunking and embedding (any OpenAI-compatible `/embeddings` endpoint), written questions, an `hnswlib` reference |
 
 ## Use
@@ -82,7 +83,8 @@ A runnable agent-memory example (remember, recall, follow links) is in `crates/q
 - One writable handle per directory (`NativeStore::open`), across all processes; a second one fails at once with
   "store is locked by another process". Other processes and threads read with `NativeStore::open_read_only(path)`.
 - `NativeStore` is `Send`, not `Sync`: wrap a writer in a `Mutex`.
-- The vector index lives in memory: about 4.25 KB per 1,024-dimension vector. Keep a store on a local disk; the lock may
+- The vector index lives in memory: about 4.5 KB per 1,024-dimension vector (100,000 add 454 MB) and about 1.1 KB per
+  128-dimension vector (1,000,000 add 1.06 GB). Keep a store on a local disk; the lock may
   not hold on network file systems.
 
 ## How data is stored
@@ -138,7 +140,7 @@ The comparison adapters are untuned. Method, datasets and commands: `BENCH.md`.
 | `get_row` p50 | 12.0 µs | **8.1 µs** | 7.9 µs | 1,398 µs |
 | Vector index build (load + flush) | 262 s | 30 s | **13 s** (no index) | 474 s |
 | Size on disk | 2,026 MB | 1,299 MB | **1,130 MB** | 2,740 MB |
-| Memory | ~3.8 GB added by the store | **~0.06 GB** added | 1.9 GB process ² | 4.2 GB process ² |
+| Memory | 1.06 GB added by the store ³ | **~0.06 GB** added | 1.9 GB process ² | 4.2 GB process ² |
 | Reopen | 4.0 s | **< 1 ms** | **< 1 ms** | 60 ms |
 
 Not in the table: CozoDB 0.7.6 (RocksDB) and `sqlite-vec` 0.1.10-alpha.4 DiskANN did not finish loading SIFT-1M within the
@@ -168,8 +170,8 @@ Not in the table: CozoDB 0.7.6 (RocksDB) and `sqlite-vec` 0.1.10-alpha.4 DiskANN
 - **Fastest answers.** At the same recall QDB answers vector queries 3.1–3.3× faster than `vec1` and 6.6–9.9× faster
   than LanceDB on SIFT-1M, and 8–23× faster than the SQLite extensions on the corpus. Filtered queries keep full recall
   where the SQLite extensions drop to 0.81–0.86.
-- **The price is build time, memory and reopen time.** QDB keeps an HNSW graph in memory: about 4.25 KB per 1,024-d
-  vector, ~3.8 GB at 1M × 128, 4 s to reopen at 1M. `vec1` is the choice when memory and build time matter more than speed.
+- **The price is build time, memory and reopen time.** QDB keeps an HNSW graph in memory: about 4.5 KB per 1,024-d
+  vector, about 1.06 GB at 1M × 128, 4 s to reopen at 1M. `vec1` is the choice when memory and build time matter more than speed.
 - **Rows and edges are plain SQLite** in the SQLite-based engines. QDB's covering edge indexes make its hops the fastest.
 
 ### Reliability and platforms
@@ -207,6 +209,9 @@ Same graph and same answers on both: recall and size are identical. Synthetic qu
 here is lower than on SIFT or the corpus and is not comparable with the tables above.
 
 ¹ R5 (6 CPUs, same machine), 3 runs. ² Whole-process memory after load, a different measure from the R10 column.
+³ Re-measured after the fix for a memory leak in bulk vector insert, found by fuzzing (single run on a 6-core Linux host).
+The code before the fix added 3.79 GB here, as R10 recorded; recall and size on disk are identical, and query time at
+100,000 vectors is unchanged.
 ³ After the fix for an x86-only field that clippy flagged on ARM64; tests passed before and after.
 
 ## Limits

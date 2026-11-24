@@ -1,0 +1,52 @@
+[package]
+name = "quickdb-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+crc32fast = "1.5"
+tempfile = "3"
+quickdb-api = { path = "../crates/quickdb-api" }
+quickdb-native = { path = "../crates/quickdb-native" }
+
+# Its own workspace, so the fuzz crate never joins the main one (it needs a nightly toolchain).
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "snapshot_decode"
+path = "fuzz_targets/snapshot_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "snapshot_mutate"
+path = "fuzz_targets/snapshot_mutate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "store_open"
+path = "fuzz_targets/store_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "store_api"
+path = "fuzz_targets/store_api.rs"
+test = false
+doc = false
+bench = false

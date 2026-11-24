@@ -38,7 +38,7 @@ p50/p95/p99 per query family; the schema is in `crates/quickdb-bench/README.md`.
 |---|---|---|
 | knn, SIFT-1M, ef 64, 6 CPUs | 0.47 ms at recall@10 0.963; LanceDB 4.2 ms; `sqlite-vec` 0.1.9 exact scan 272 ms | 3-run medians, untuned adapters |
 | knn vs SQLite `vec1` 0.8, SIFT-1M, 4 CPUs | 0.43 ms vs 1.33 ms at recall ~0.965 (3.1–3.3×); on the corpus 8–23× | 3-run medians |
-| Cost vs `vec1` 0.8, SIFT-1M | `vec1` builds 8.7× faster (30 s vs 262 s), stores 36% less, uses ~0.06 GB vs ~3.8 GB RAM, reopens under 1 ms | 3-run medians |
+| Cost vs `vec1` 0.8, SIFT-1M | `vec1` builds 8.7× faster (30 s vs 262 s), stores 36% less, uses ~0.06 GB vs ~1.06 GB RAM (QDB after the leak fix; 3.79 GB before), reopens under 1 ms | 3-run medians |
 | Index build, SIFT-1M, 6 CPUs | 224 s (range 223–225 s); `hnswlib` 0.8.0: 192–221 s | 3-run median; `hnswlib` single runs |
 | Float build, GIST (960-d) | 1.20–1.24× `hnswlib` 0.8.0 | medians of 8 alternated rounds (200k), loaded host |
 | Recall, GIST-1M | 0.755 / 0.930 at ef 64 / 256 vs `hnswlib` 0.755 / 0.926 | single runs |
@@ -46,7 +46,7 @@ p50/p95/p99 per query family; the schema is in `crates/quickdb-bench/README.md`.
 | Graph hops, SIFT-1M graph | 1-hop 8.2 µs vs 27 µs, 3-hop 226 µs vs 505 µs (SQLite + `sqlite-vec` adapter) | 3-run medians |
 | Graph hops, research corpus | 3-hop 42 µs | single run |
 | Research corpus, 6 CPUs | build 3.2 s, knn ef 32 116 µs at recall 0.990, `get_row` 4 µs, 242 MB on disk | single run |
-| Memory | about 4.25 KB per 1,024-d vector; 200,000 vectors under 1 GB | single run |
+| Memory added by the store | 1M × 128: 1.06 GB (3.79 GB before the leak fix); 100k × 1,024: 454 MB (851 MB before); 100k × 128: 95 MB (468 MB before) | single runs, 2 runs at 100k |
 | Crash safety | 240 `kill -9` runs, 0 failures; 202 damaged stores recovered; emulated power loss, 3,000 images, 0 lost (assumes honest `fsync`) | 4 campaigns |
 
 ## Paired timing method (A/B of two builds)

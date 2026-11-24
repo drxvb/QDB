@@ -35,6 +35,14 @@ follow semantic versioning from the first release. 0.1.0 is not released yet.
   skips that one test.
 - Adapters `quickdb-sqlitevec`, `quickdb-cozo`, `quickdb-lance`, `quickdb-surreal`: wildcard arms for the enums above.
 
+### Fixed
+
+- `quickdb-native`: a memory leak in parallel HNSW inserts. Each insert batch after the first 256 vectors kept its
+  rollback copies of the adjacency lists (about 3.7–4.0 KB per vector). At 100,000 vectors the memory a store adds
+  while loading fell from 468 MB to 95 MB (128 dims) and from 851 MB to 454 MB (1,024 dims); recall and query time are
+  unchanged. Found by the new `store_api` fuzz target; regression test `tests/fuzz_leak.rs`.
+- `quickdb-native`: clippy `dead_code` error on non-x86_64 targets (a prefetch field used only by x86_64 code).
+
 ### Known limits
 
 See `evidence/relprep-gaps.md` for what is still missing before a public release.
