@@ -22,6 +22,27 @@
 
 `Store::k_hop` always runs breadth-first search in Rust (`k_hop_bfs`) at every depth, reading neighbor IDs from SQLite's covering indexes (`edges` and `edges_in`). The start node is marked seen immediately so cycles never return it. Once a depth reaches the remaining `limit` budget, `k_hop_bfs` switches to a max-heap retaining only the smallest distinct remaining IDs at that depth and stops expanding deeper hops once `limit` is filled; retained visited, frontier and result memory stays bounded by `O(limit)` (`71.7 MB` to `2.0 MB` on a `2,000,000`-edge star with limit `1`; SQLite still scans frontier edges). `k_hop_sql` (recursive SQL) remains public for comparisons and is not called by `Store::k_hop`.
 
+## Full-text and hybrid search
+
+Full-text search is built in, as inherent `NativeStore` methods outside the `Store` trait:
+
+- `define_text_index(&TextIndexDef { name, table, columns })` indexes one or more `Text` columns of an existing table. It is idempotent for an identical definition (a different definition under the same name is `Error::Schema`), is recorded in the store's catalogue (`text_defs`) and reloads on open. Rows already in the table are indexed in the same transaction that records the index.
+- `text_search(index, query, k) -> Result<Vec<(NodeId, f64)>>` ranks with BM25 and returns up to `k` `(id, score)` pairs, best first, where the score is the negated FTS5 `bm25()` value (higher is better); ties are broken by ascending id. A row must contain every query term.
+- `text_search_any(index, query, k)` is the same with any-term matching: rows with more and rarer terms rank higher. It suits natural-language questions, where few rows contain every word.
+- `hybrid_search(text_index, vector_index, query_text, query_vector, k, ef_search)` fuses the any-term text ranking (`text_search_any`) and the `knn` ranking with Reciprocal Rank Fusion: an id scores `1 / (60 + rank)` for each ranking it appears in (1-based ranks, `fts::RRF_K = 60`). Each ranking contributes its top `max(k, min(ef_search, 1024))` candidates. Rows and vectors are joined by id. A query text without terms ranks by vector only.
+
+Storage and consistency:
+
+- Each text index is one SQLite FTS5 table (`content=''`, `contentless_delete=1`, `tokenize='unicode61 remove_diacritics 2'`) keyed by row id. It stores only the index, not a second copy of the text.
+- `upsert_rows` and `delete_rows` update every text index on the table inside the same SQLite transaction as the rows, so after a crash the text index and the rows never disagree (tested by killing a writer process mid-stream and reopening). `open_read_only` handles search text live, like rows, but see only the text indexes defined before they opened.
+
+Text folding and query safety:
+
+- `unicode61` folds Latin diacritics and case but does not remove Arabic harakat. Indexed text and queries are therefore first folded by the public `fts::fold`, which drops harakat, Quranic marks and tatweel, maps `آ أ إ ٱ` to `ا`, `ى` to `ي` and `ة` to `ه`. Stored row text is unchanged; only the indexed form is folded.
+- Query text is never read as FTS5 syntax. It is folded, split on every non-alphanumeric character, and each term is quoted; terms are combined with `AND` (`OR` in `text_search_any`; the first 64 distinct terms are kept). `NEAR(`, `*`, `-`, `:`, quotes and operators such as `OR` are plain text. A query with no terms returns no hits rather than an error.
+
+Measured with `examples/fts_bench.rs` (release build, `4` CPUs, Linux x86_64, `6` runs in two batches): `22,000` synthetic texts of `6`–`15` words with `64`-dimension cosine vectors, `1,000` two-word queries, `k = 10`: rows plus text index load in `0.09–0.10 s`; `text_search` p50 `34–36 µs` (p95 `80–85 µs`); `hybrid_search` (`ef_search = 64`) p50 `90–106 µs` (p95 `154–201 µs`). Synthetic vocabulary only; retrieval quality on real text is not measured.
+
 ## Measurements
 
 See "Measured results" in the repository `README.md`. Every number there came from `crates/quickdb-bench` or the

@@ -1,5 +1,20 @@
-//! SQLite rows and edges with a persisted, pure-Rust HNSW index.
+//! The QDB engine: [`NativeStore`] implements [`quickdb_api::Store`] with bundled SQLite for rows,
+//! edges and authoritative vectors, and a persisted, pure-Rust HNSW index for vector search.
+//!
+//! A store is one directory holding `quickdb.sqlite` (WAL mode), a lock file and one
+//! checksummed `<index>.hnsw` snapshot per vector index. A missing, damaged or stale snapshot is
+//! rebuilt from SQLite on open. One writer per directory: a second [`Store::open`] fails at once,
+//! while [`NativeStore::open_read_only`] takes no lock. Keep stores on local disk.
+//!
+//! Most users depend on the `quickdb` crate, which re-exports this engine and the contract and
+//! has a quick start.
+//!
+//! Full-text search (SQLite FTS5, BM25, with Arabic folding) and hybrid text + vector search are
+//! inherent methods of [`NativeStore`]; see [`fts`].
+pub mod fts;
 mod hnsw;
+
+pub use fts::TextIndexDef;
 
 use hnsw::{snapshot, Hnsw};
 use quickdb_api::*;
@@ -246,6 +261,59 @@ fn enter_wal(db: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Positions of `columns` in `table`; each must be a distinct `Text` column.
+fn text_positions(table: &TableDef, columns: &[String]) -> Result<Vec<usize>> {
+    if columns.is_empty() {
+        return Err(schema("text index needs at least one column"));
+    }
+    let mut positions = Vec::with_capacity(columns.len());
+    for name in columns {
+        check_name(name)?;
+        let pos = table
+            .columns
+            .iter()
+            .position(|c| &c.name == name)
+            .ok_or_else(|| Error::NotFound(name.clone()))?;
+        if table.columns[pos].ty != ColumnType::Text {
+            return Err(schema(format!("text index column {name} is not Text")));
+        }
+        if positions.contains(&pos) {
+            return Err(schema(format!("duplicate text index column {name}")));
+        }
+        positions.push(pos);
+    }
+    Ok(positions)
+}
+
+/// `INSERT` into an FTS5 table: the rowid, then the indexed values in columns `c0, c1, ...`.
+fn fts_insert(fts: &str, columns: usize) -> String {
+    let mut names = String::from("rowid");
+    let mut slots = String::from("?");
+    for i in 0..columns {
+        names.push_str(&format!(",c{i}"));
+        slots.push_str(",?");
+    }
+    format!("INSERT INTO \"{fts}\"({names}) VALUES({slots})")
+}
+
+/// Inserts the folded form of one row's indexed values into an FTS5 table.
+fn insert_text<'a>(
+    insert: &mut rusqlite::Statement<'_>,
+    id: NodeId,
+    values: impl Iterator<Item = &'a Value>,
+) -> Result<()> {
+    let folded = values.map(|v| match v {
+        Value::Text(text) => rusqlite::types::Value::Text(fts::fold(text)),
+        _ => rusqlite::types::Value::Null,
+    });
+    insert
+        .execute(params_from_iter(
+            std::iter::once(rusqlite::types::Value::Integer(id as i64)).chain(folded),
+        ))
+        .map_err(backend)?;
+    Ok(())
+}
+
 /// A QuickDB store on bundled SQLite (rows and edges) with persisted pure-Rust HNSW vector indexes.
 /// One writable handle per directory is enforced by a file lock; see [`NativeStore::open_read_only`]
 /// for readers.
@@ -263,6 +331,7 @@ pub struct NativeStore {
     store_id: Option<[u8; 16]>,
     /// Held for the life of a writable store; `None` for `open_read_only`.
     lock: Option<File>,
+    text_indexes: HashMap<String, TextIndexDef>,
 }
 impl NativeStore {
     /// Opens an existing store for reading from any number of processes, beside at most
@@ -311,6 +380,8 @@ impl NativeStore {
         if lock.is_some() {
             enter_wal(&db)?;
             db.execute_batch("PRAGMA synchronous=FULL; PRAGMA temp_store=MEMORY; CREATE TABLE IF NOT EXISTS table_defs(name TEXT PRIMARY KEY); CREATE TABLE IF NOT EXISTS column_defs(tbl TEXT NOT NULL,pos INTEGER NOT NULL,name TEXT NOT NULL,ty INTEGER NOT NULL,indexed INTEGER NOT NULL,PRIMARY KEY(tbl,pos)); CREATE TABLE IF NOT EXISTS vector_defs(name TEXT PRIMARY KEY,dim INTEGER NOT NULL,metric INTEGER NOT NULL,m INTEGER NOT NULL,ef INTEGER NOT NULL,revision INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS vectors(name TEXT NOT NULL,id INTEGER NOT NULL,data BLOB NOT NULL,PRIMARY KEY(name,id)); CREATE TABLE IF NOT EXISTS edges(src INTEGER NOT NULL,rel TEXT NOT NULL,dst INTEGER NOT NULL,weight REAL NOT NULL,PRIMARY KEY(src,rel,dst)); CREATE INDEX IF NOT EXISTS edges_in ON edges(dst,rel,src); CREATE TABLE IF NOT EXISTS store_meta(key TEXT PRIMARY KEY,value BLOB NOT NULL); INSERT OR IGNORE INTO store_meta VALUES('store_id',randomblob(16)); CREATE TABLE IF NOT EXISTS vector_state(name TEXT PRIMARY KEY,nonce INTEGER NOT NULL); INSERT OR IGNORE INTO vector_state SELECT name,random() FROM vector_defs;").map_err(backend)?;
+            db.execute_batch("CREATE TABLE IF NOT EXISTS text_defs(name TEXT PRIMARY KEY,tbl TEXT NOT NULL,columns TEXT NOT NULL);")
+                .map_err(backend)?;
             if !sync_each_write {
                 db.execute_batch("PRAGMA synchronous=NORMAL;")
                     .map_err(backend)?;
@@ -320,6 +391,7 @@ impl NativeStore {
                 .map_err(backend)?;
         }
         let tables = Self::load_tables(&db)?;
+        let text_indexes = Self::load_text_indexes(&db, &tables)?;
         let mut store = Self {
             store_id: store_id(&db)?,
             db,
@@ -332,6 +404,7 @@ impl NativeStore {
             stale_indexes: HashSet::new(),
             states: HashMap::new(),
             lock,
+            text_indexes,
         };
         store.load_indexes()?;
         Ok(store)
@@ -603,6 +676,221 @@ impl NativeStore {
         }
         Ok(())
     }
+    fn load_text_indexes(
+        db: &Connection,
+        tables: &HashMap<String, TableDef>,
+    ) -> Result<HashMap<String, TextIndexDef>> {
+        let mut indexes = HashMap::new();
+        if !has_table(db, "text_defs")? {
+            return Ok(indexes);
+        }
+        let mut stmt = db
+            .prepare("SELECT name,tbl,columns FROM text_defs ORDER BY name")
+            .map_err(backend)?;
+        let defs = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(backend)?;
+        for row in defs {
+            let (name, table, columns) = row.map_err(backend)?;
+            let def = TextIndexDef {
+                name,
+                table,
+                columns: columns.split(',').map(str::to_owned).collect(),
+            };
+            check_name(&def.name)?;
+            let table = tables
+                .get(&def.table)
+                .ok_or_else(|| backend(format!("text index {} has no table", def.name)))?;
+            text_positions(table, &def.columns)
+                .map_err(|e| backend(format!("invalid stored text index {}: {e}", def.name)))?;
+            indexes.insert(def.name.clone(), def);
+        }
+        Ok(indexes)
+    }
+    /// FTS5 table and indexed column positions of every text index on `table`.
+    fn text_targets(&self, table: &str) -> Result<Vec<(String, Vec<usize>)>> {
+        let def = self.table(table)?;
+        let mut targets = Vec::new();
+        for index in self.text_indexes.values().filter(|i| i.table == table) {
+            targets.push((
+                fts::table_name(&index.name),
+                text_positions(def, &index.columns)?,
+            ));
+        }
+        Ok(targets)
+    }
+    fn index_text(tx: &Connection, fts: &str, positions: &[usize], rows: &[Row]) -> Result<()> {
+        let mut delete = tx
+            .prepare_cached(&format!("DELETE FROM \"{fts}\" WHERE rowid=?"))
+            .map_err(backend)?;
+        let mut insert = tx
+            .prepare_cached(&fts_insert(fts, positions.len()))
+            .map_err(backend)?;
+        for row in rows {
+            delete.execute([row.id as i64]).map_err(backend)?;
+            insert_text(
+                &mut insert,
+                row.id,
+                positions.iter().map(|&p| &row.values[p]),
+            )?;
+        }
+        Ok(())
+    }
+    /// Defines a full-text index over `Text` columns of an existing table. Idempotent for an
+    /// identical definition; a different definition under the same name is `Error::Schema`.
+    /// Rows already in the table are indexed in the same transaction that records the index,
+    /// and later `upsert_rows` and `delete_rows` on the table update it in their own
+    /// transactions. Indexed text is folded with [`fts::fold`]; stored rows are unchanged.
+    pub fn define_text_index(&mut self, def: &TextIndexDef) -> Result<()> {
+        self.writable()?;
+        check_name(&def.name)?;
+        let table = self.table(&def.table)?;
+        let positions = text_positions(table, &def.columns)?;
+        if let Some(old) = self.text_indexes.get(&def.name) {
+            return if old == def {
+                Ok(())
+            } else {
+                Err(schema("text index redefinition"))
+            };
+        }
+        let fts = fts::table_name(&def.name);
+        let columns: Vec<String> = positions
+            .iter()
+            .map(|&p| format!("\"c_{}\"", table.columns[p].name))
+            .collect();
+        let select = format!(
+            "SELECT id,{} FROM \"t_{}\" ORDER BY id",
+            columns.join(","),
+            def.table
+        );
+        let fts_columns: Vec<String> = (0..positions.len()).map(|i| format!("c{i}")).collect();
+        let create = format!(
+            "CREATE VIRTUAL TABLE \"{fts}\" USING fts5({}, content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2')",
+            fts_columns.join(",")
+        );
+        let insert = fts_insert(&fts, positions.len());
+        let tx = self.db.transaction().map_err(backend)?;
+        tx.execute_batch(&create).map_err(backend)?;
+        tx.execute(
+            "INSERT INTO text_defs VALUES(?,?,?)",
+            params![def.name, def.table, def.columns.join(",")],
+        )
+        .map_err(backend)?;
+        {
+            let mut read = tx.prepare(&select).map_err(backend)?;
+            let mut insert = tx.prepare(&insert).map_err(backend)?;
+            let mut rows = read.query([]).map_err(backend)?;
+            let mut values = Vec::with_capacity(positions.len());
+            while let Some(row) = rows.next().map_err(backend)? {
+                let id: u64 = row.get(0).map_err(backend)?;
+                values.clear();
+                for i in 1..=positions.len() {
+                    values.push(match row.get::<_, Option<String>>(i).map_err(backend)? {
+                        Some(text) => Value::Text(text),
+                        None => Value::Null,
+                    });
+                }
+                insert_text(&mut insert, id, values.iter())?;
+            }
+        }
+        tx.commit().map_err(backend)?;
+        self.text_indexes.insert(def.name.clone(), def.clone());
+        self.finish_write()
+    }
+    /// Text index definitions known to this handle, sorted by name.
+    pub fn text_indexes(&self) -> Vec<TextIndexDef> {
+        let mut defs: Vec<_> = self.text_indexes.values().cloned().collect();
+        defs.sort_by(|a, b| a.name.cmp(&b.name));
+        defs
+    }
+    /// Full-text search with BM25 ranking. The query is folded like indexed text and split
+    /// into terms on every non-alphanumeric character; each term is quoted, so the query is
+    /// never read as FTS5 syntax, and a row matches when it contains every term (the first
+    /// [`fts::MAX_QUERY_TERMS`] distinct terms are used). Returns up to `k` `(id, score)`
+    /// pairs, best first, where the score is the negated FTS5 `bm25()` value (higher is
+    /// better); ties are broken by ascending id. A query without terms returns no hits.
+    pub fn text_search(&self, index: &str, query: &str, k: usize) -> Result<Vec<(NodeId, f64)>> {
+        self.text_search_mode(index, query, k, false)
+    }
+
+    /// Like [`NativeStore::text_search`], but a row matches when it contains **any** term of
+    /// the query; rows containing more (and rarer) terms rank higher under BM25. Suited to
+    /// natural-language questions, where few rows contain every word.
+    pub fn text_search_any(
+        &self,
+        index: &str,
+        query: &str,
+        k: usize,
+    ) -> Result<Vec<(NodeId, f64)>> {
+        self.text_search_mode(index, query, k, true)
+    }
+
+    fn text_search_mode(
+        &self,
+        index: &str,
+        query: &str,
+        k: usize,
+        any: bool,
+    ) -> Result<Vec<(NodeId, f64)>> {
+        let def = self
+            .text_indexes
+            .get(index)
+            .ok_or_else(|| Error::NotFound(index.into()))?;
+        let Some(expression) = fts::match_terms(query, any) else {
+            return Ok(Vec::new());
+        };
+        if k == 0 {
+            return Ok(Vec::new());
+        }
+        let fts = fts::table_name(&def.name);
+        let mut stmt = self
+            .db
+            .prepare_cached(&format!(
+                "SELECT rowid,bm25(\"{fts}\") AS score FROM \"{fts}\" WHERE \"{fts}\" MATCH ? ORDER BY score,rowid LIMIT CAST(? AS INTEGER)"
+            ))
+            .map_err(backend)?;
+        let rows = stmt
+            .query_map(params![expression, k.min(i64::MAX as usize) as i64], |r| {
+                Ok((r.get::<_, u64>(0)?, -r.get::<_, f64>(1)?))
+            })
+            .map_err(backend)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(backend)
+    }
+    /// Hybrid text and vector search fused with Reciprocal Rank Fusion: an id scores
+    /// `1 / (RRF_K + rank)` for each ranking it appears in, with [`fts::RRF_K`] `= 60` and
+    /// 1-based ranks. Each ranking contributes its top
+    /// `max(k, min(ef_search, fts::MAX_FUSION_DEPTH))` candidates, from
+    /// [`NativeStore::text_search_any`] (a row matches on any query term) and from `knn` asked
+    /// for that many results. Returns up
+    /// to `k` `(id, fused score)` pairs, best first, ties broken by ascending id. Rows and
+    /// vectors are joined by id. A query text without terms ranks by vector only.
+    pub fn hybrid_search(
+        &self,
+        text_index: &str,
+        vector_index: &str,
+        query_text: &str,
+        query_vector: &[f32],
+        k: usize,
+        ef_search: usize,
+    ) -> Result<Vec<(NodeId, f64)>> {
+        if !self.text_indexes.contains_key(text_index) {
+            return Err(Error::NotFound(text_index.into()));
+        }
+        self.validate_query(vector_index, query_vector)?;
+        if k == 0 {
+            return Ok(Vec::new());
+        }
+        let depth = k.max(ef_search.min(fts::MAX_FUSION_DEPTH));
+        let text = self.text_search_any(text_index, query_text, depth)?;
+        let vector = self.knn(vector_index, query_vector, depth, ef_search.max(depth))?;
+        Ok(fts::fuse(&text, &vector, k))
+    }
     /// Breadth-first traversal over neighbor IDs from SQLite's covering indexes.
     pub fn k_hop_bfs(
         &self,
@@ -825,6 +1113,7 @@ impl Store for NativeStore {
             projection(def),
             vec!["?"; def.columns.len() + 1].join(",")
         );
+        let text = self.text_targets(table)?;
         let tx = self.db.transaction().map_err(backend)?;
         {
             let mut stmt = tx.prepare_cached(&sql).map_err(backend)?;
@@ -832,6 +1121,10 @@ impl Store for NativeStore {
                 let values = std::iter::once(rusqlite::types::Value::Integer(row.id as i64))
                     .chain(row.values.iter().map(sql_value));
                 stmt.execute(params_from_iter(values)).map_err(backend)?;
+            }
+            // Text indexes change in the same transaction as the rows they mirror.
+            for (fts, positions) in &text {
+                Self::index_text(&tx, fts, positions, rows)?;
             }
         }
         tx.commit().map_err(backend)?;
@@ -893,6 +1186,7 @@ impl Store for NativeStore {
         for &id in ids {
             check_id(id)?;
         }
+        let text = self.text_targets(table)?;
         let tx = self.db.transaction().map_err(backend)?;
         let mut count = 0;
         {
@@ -901,6 +1195,14 @@ impl Store for NativeStore {
                 .map_err(backend)?;
             for id in ids {
                 count += stmt.execute([*id as i64]).map_err(backend)? as u64;
+            }
+            for (fts, _) in &text {
+                let mut stmt = tx
+                    .prepare_cached(&format!("DELETE FROM \"{fts}\" WHERE rowid=?"))
+                    .map_err(backend)?;
+                for id in ids {
+                    stmt.execute([*id as i64]).map_err(backend)?;
+                }
             }
         }
         tx.commit().map_err(backend)?;

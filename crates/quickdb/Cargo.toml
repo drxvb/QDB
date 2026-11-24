@@ -1,0 +1,23 @@
+[package]
+name = "quickdb"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors = ["Rabie Qotb", "Basil"]
+description = "QDB (QuickDB): relational rows, vectors and a graph in one embedded, in-process Rust store"
+readme = "README.md"
+documentation = "https://docs.rs/quickdb"
+homepage = "https://github.com/drxvb/QDB"
+repository = "https://github.com/drxvb/QDB"
+publish = true
+keywords = ["database", "vector-search", "graph", "embedded", "hnsw"]
+categories = ["database-implementations", "data-structures"]
+
+[package.metadata.docs.rs]
+# The public API is the same on every target; build the docs once.
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+quickdb-api = { path = "../quickdb-api", version = "0.1.0" }
+quickdb-native = { path = "../quickdb-native", version = "0.1.0" }

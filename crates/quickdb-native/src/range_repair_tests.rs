@@ -34,7 +34,19 @@ fn corpus_range_query_plan_and_late_materialization() {
         "corpus-8",
         "corpus-9",
     ];
-    let rows: Vec<_> = include_str!("../tests/fixtures/corpus-shapes.tsv")
+    // Read at run time, not with include_str!: the published package leaves this 400 kB file out.
+    // An unpacked package (marked by the Cargo.toml.orig that cargo writes) skips the test; a
+    // source checkout without the file fails it.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let shapes = match std::fs::read_to_string(root.join("tests/fixtures/corpus-shapes.tsv")) {
+        Ok(text) => text,
+        Err(_) if root.join("Cargo.toml.orig").exists() => {
+            eprintln!("skipped: tests/fixtures/corpus-shapes.tsv is not in the published package");
+            return;
+        }
+        Err(error) => panic!("tests/fixtures/corpus-shapes.tsv: {error}"),
+    };
+    let rows: Vec<_> = shapes
         .lines()
         .filter(|line| !line.starts_with('#'))
         .enumerate()

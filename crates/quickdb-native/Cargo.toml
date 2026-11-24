@@ -4,24 +4,37 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "QuickDB native backend: SQLite rows and edges plus a persisted pure-Rust HNSW vector index in one embedded store"
-repository.workspace = true
-publish = false
+authors = ["Rabie Qotb", "Basil"]
+description = "QDB native backend: SQLite rows and edges plus a persisted pure-Rust HNSW vector index in one embedded store"
+readme = "README.md"
+documentation = "https://docs.rs/quickdb-native"
+homepage = "https://github.com/drxvb/QDB"
+repository = "https://github.com/drxvb/QDB"
+publish = true
 keywords = ["database", "vector-search", "hnsw", "graph", "embedded"]
 categories = ["database-implementations", "data-structures"]
-readme = "README.md"
-# Keep run logs and evidence out of the package. tests/fixtures/corpus-shapes.tsv stays in: a unit
-# test reads it with include_str!. Examples excluded: qbench and point_retained call quickdb-bench,
-# a path dev-dependency that packaging strips; bound_reference regenerates a frozen fixture by
-# compiling src/hnsw.rs a second time, and without the workspace's release profile (thin LTO),
-# which packaging drops, its #[no_mangle] counter is a duplicate symbol at link time.
+# Kept out of the package:
+# - run logs and evidence;
+# - tests/fixtures/corpus-shapes.tsv (about 400 kB): the unit test that reads it skips itself in an
+#   unpacked package and runs in a source checkout;
+# - tools/corpus_shapes.py, which regenerates that file from a local corpus;
+# - examples qbench and point_retained, which call quickdb-bench, a path dev-dependency that
+#   packaging strips; and bound_reference, which regenerates a frozen fixture by compiling
+#   src/hnsw.rs a second time and, without the workspace's release profile (thin LTO), which
+#   packaging drops, links a duplicate #[no_mangle] counter.
 exclude = [
     "evidence/",
     "*.log",
+    "tests/fixtures/corpus-shapes.tsv",
+    "tools/corpus_shapes.py",
     "examples/qbench.rs",
     "examples/point_retained.rs",
     "examples/bound_reference.rs",
 ]
+
+[package.metadata.docs.rs]
+# The public API is the same on every target; build the docs once.
+targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 quickdb-api = { path = "../quickdb-api", version = "0.1.0" }

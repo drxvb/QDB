@@ -1,7 +1,7 @@
 # QDB — QuickDB by Rabie and Basil
 
-An embedded Rust memory core: relational rows, vectors and a graph in **one in-process store**, with no server.
-One id space is shared by rows, vectors and graph nodes; a store is one directory.
+An embedded Rust memory core: relational rows, vectors, full-text search and a graph in **one in-process store**, with no
+server. One id space is shared by rows, vectors and graph nodes; a store is one directory. Use it from Rust or Python.
 
 QDB started from Rabie Qotb's concept of a sovereign "single Rust binary" whose memory core is embedded rather than
 reached over a network (the concept gave that role to CozoDB). We built both ways and measured them against each other;
@@ -14,20 +14,26 @@ the native engine won, and CozoDB stays here as a comparison adapter.
 
 | Crate | What it is |
 |---|---|
+| `crates/quickdb` | the crate to depend on: re-exports the contract and the engine, with a quick start (`cargo add quickdb`) |
+| `crates/quickdb-py` | Python package `quickdb` (PyO3, one abi3 wheel for Python 3.9+), with numpy support |
 | `crates/quickdb-api` | the contract: one `Store` trait for rows, vectors and edges, plus the executable `conformance` suite (12 check groups) |
-| `crates/quickdb-native` | the engine, `NativeStore`: bundled SQLite for rows and edges, a persisted pure-Rust HNSW vector index tied to the store |
+| `crates/quickdb-native` | the engine, `NativeStore`: bundled SQLite for rows and edges, a persisted pure-Rust HNSW vector index tied to the store, full-text BM25 search with Arabic folding, and hybrid text + vector search |
 | `crates/quickdb-bench` | benchmark harness generic over `Store`, an exact reference store, corpus and question loaders |
 | `crates/quickdb-cozo` · `-sqlitevec` · `-sqlitevec-ann` · `-vec1` · `-lance` · `-surreal` | comparison adapters for CozoDB, SQLite + `sqlite-vec` 0.1.9, `sqlite-vec` DiskANN, SQLite `vec1`, LanceDB, SurrealDB (each its own cargo workspace) |
 | `scripts/corpus_prepare.py` · `corpus_questions.py` · `reference_ann.py` | corpus chunking and embedding (any OpenAI-compatible `/embeddings` endpoint), written questions, an `hnswlib` reference |
 
 ## Use
 
+```sh
+cargo add quickdb                      # Rust (once published; until then a git dependency)
+pip install quickdb-py                 # Python (once published; until then build with maturin, see crates/quickdb-py)
+```
+
 Full, compiled quickstart: `README-example.md` (it is also a test, `readme_quickstart`).
 
 ```rust
-use quickdb_api::{Store, OpenOptions, TableDef, ColumnDef, ColumnType, Row, Value,
-                  VectorIndexDef, Metric, Edge, Direction, Filter};
-use quickdb_native::NativeStore;
+use quickdb::{Store, OpenOptions, TableDef, ColumnDef, ColumnType, Row, Value,
+              VectorIndexDef, Metric, Edge, Direction, Filter, NativeStore};
 
 let mut db = NativeStore::open("memory.qdb".as_ref(), &OpenOptions::default())?;
 db.define_table(&TableDef { name: "notes".into(), columns: vec![
@@ -45,6 +51,31 @@ let same  = db.knn_filtered("emb", &query, 10, 64, "notes",
 let reach = db.k_hop(1, None, Direction::Out, 3, 1000)?;          // by relation
 let row   = db.get_row("notes", 1)?;                              // by key
 ```
+
+### Memory for AI agents: words, meaning and links together
+
+```rust
+use quickdb::TextIndexDef;
+db.define_text_index(&TextIndexDef { name: "words".into(), table: "notes".into(), columns: vec!["text".into()] })?;
+let exact  = db.text_search("words", "embedded database", 10)?;            // every word, BM25
+let loose  = db.text_search_any("words", "how do we store notes?", 10)?;   // any word, BM25
+let recall = db.hybrid_search("words", "emb", "how do we store notes?", &query, 10, 64)?; // text + vector, RRF
+```
+
+```python
+import quickdb
+with quickdb.Store("memory.qdb") as db:
+    db.define_table("notes", [("kind", "text", True), ("text", "text", False)])
+    db.define_vector_index("emb", 1024, metric="cosine")
+    db.define_text_index("words", "notes", ["text"])
+    db.upsert_rows("notes", [{"id": 1, "kind": "decision", "text": "Store notes locally"}])
+    db.upsert_vectors("emb", [1], embeddings)          # list of lists or a numpy array
+    hits = db.hybrid_search("words", "emb", "where are notes stored?", query_vector, k=5)
+```
+
+Arabic text is folded for search (harakat, tatweel and alef forms), so `كَتَبَ` finds `كتب`; stored text is unchanged.
+A runnable agent-memory example (remember, recall, follow links) is in `crates/quickdb/examples/agent_memory.rs` and
+`crates/quickdb-py/examples/agent_memory.py`.
 
 ### One store, several users
 

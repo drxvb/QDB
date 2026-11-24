@@ -4,10 +4,18 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "QuickDB contract: one trait for relational rows, vectors and a graph in one embedded store"
-repository.workspace = true
-publish = false
+authors = ["Rabie Qotb", "Basil"]
+description = "QDB contract: one trait for relational rows, vectors and a graph in one embedded store, plus its conformance suite"
+readme = "README.md"
+documentation = "https://docs.rs/quickdb-api"
+homepage = "https://github.com/drxvb/QDB"
+repository = "https://github.com/drxvb/QDB"
+publish = true
 keywords = ["database", "vector-search", "graph", "embedded", "storage"]
 categories = ["database-implementations", "data-structures"]
+
+[package.metadata.docs.rs]
+# Pure Rust with no target-specific code: one target is enough.
+targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]

@@ -26,7 +26,6 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
-      # Fails until the tree is formatted once with `cargo fmt --all` (see evidence/relprep-gaps.md).
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -41,3 +40,35 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses bans sources
+
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: crates/quickdb-py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+      - name: Format and Clippy (Python crate)
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --release --all-targets -- -D warnings
+      - name: Build wheel
+        run: |
+          python -m pip install maturin pytest numpy
+          maturin build --locked --release -o dist
+      - name: Tests
+        run: |
+          python -m pip install --no-index --find-links dist quickdb-py
+          python -m pytest -q tests
