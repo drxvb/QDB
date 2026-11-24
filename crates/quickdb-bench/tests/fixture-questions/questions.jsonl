@@ -1,0 +1,5 @@
+{"id":"q001","lang":"en","question":"Which note describes the first made-up fixture file?","expected_doc_ids":[1],"corpus":"fixture-source"}
+{"id":"q002","lang":"en","question":"Where is the nested restructured text sample?","expected_doc_ids":[4],"corpus":"fixture-source"}
+{"id":"q003","lang":"ar","question":"أين توجد الوثيقة النصية البسيطة؟","expected_doc_ids":[2],"corpus":"fixture-source"}
+{"id":"q004","lang":"ar","question":"ما هو ملف لاتيك التجريبي؟","expected_doc_ids":[3,4],"corpus":"fixture-source"}
+{"id":"q005","lang":"en","question":"A question whose document is not in this corpus.","expected_doc_ids":[9999],"corpus":"fixture-source"}

@@ -1,0 +1,11 @@
+{"src":500000,"rel":"has","dst":1,"weight":1.0}
+{"src":1,"rel":"contains","dst":1000000,"weight":1.0}
+{"src":500000,"rel":"has","dst":2,"weight":1.0}
+{"src":2,"rel":"contains","dst":1000001,"weight":1.0}
+{"src":500000,"rel":"has","dst":3,"weight":1.0}
+{"src":3,"rel":"contains","dst":1000002,"weight":1.0}
+{"src":500000,"rel":"has","dst":500001,"weight":1.0}
+{"src":500001,"rel":"has","dst":4,"weight":1.0}
+{"src":4,"rel":"contains","dst":1000003,"weight":1.0}
+{"src":1,"rel":"links","dst":2,"weight":1.0}
+{"src":1,"rel":"links","dst":4,"weight":1.0}

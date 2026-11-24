@@ -1,0 +1,30 @@
+[package]
+name = "quickdb-cozo"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = []
+rocksdb = ["cozo/storage-rocksdb"]
+
+[dependencies]
+quickdb-api = { path = "../quickdb-api" }
+# SQLite storage (bundled source, built with gcc). HNSW and recursive Datalog are in cozo's core.
+# `graph-algo` is not used, but 0.7.6 calls `rayon` unconditionally and only that feature pulls it in.
+cozo = { version = "=0.7.6", default-features = false, features = ["storage-sqlite", "storage-sqlite-src", "graph-algo"] }
+# Same major as cozo's own dependency; needed to build `DataValue::Vec` parameters.
+ndarray = "0.15"
+
+[dev-dependencies]
+quickdb-bench = { path = "../quickdb-bench" }
+
+# Own workspace: see the note in the root Cargo.toml.
+[workspace]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = 1

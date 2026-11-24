@@ -1,0 +1,32 @@
+[package]
+name = "quickdb-surreal"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+quickdb-api = { path = "../quickdb-api" }
+surrealdb = { version = "=3.2.4", default-features = false, features = ["kv-surrealkv"] }
+# SDK dependencies use caret requirements, which otherwise pull in the 3.3 engine.
+surrealdb-core = { version = "=3.2.4", default-features = false }
+surrealdb-types = "=3.2.4"
+surrealdb-types-derive = "=3.2.4"
+surrealdb-strand = "=3.2.4"
+surrealdb-collections = "=3.2.4"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# fastnum 0.7.5 raises MSRV to Rust 1.94.
+fastnum = "=0.7.4"
+
+[dev-dependencies]
+quickdb-bench = { path = "../quickdb-bench" }
+
+[workspace]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = 1

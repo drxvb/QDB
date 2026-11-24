@@ -1,0 +1,16 @@
+[package]
+name = "quickdb-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+# Only enable when linking the native qbench example.
+native-counter = []
+
+[dependencies]
+quickdb-api = { path = "../quickdb-api", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

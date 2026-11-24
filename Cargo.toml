@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/quickdb-api", "crates/quickdb-native", "crates/quickdb-bench"]
+# The comparison adapters are their own workspaces: cozo and rusqlite both link SQLite (`links = "sqlite3"`), so cargo cannot
+# resolve them together.
+exclude = ["crates/quickdb-cozo", "crates/quickdb-lance", "crates/quickdb-surreal", "crates/quickdb-sqlitevec",
+           "crates/quickdb-sqlitevec-ann", "crates/quickdb-vec1"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+authors = ["Rabie Qotb", "Basil"]
+repository = "https://github.com/drxvb/QDB"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = 1

@@ -1,0 +1,4 @@
+{"id":1,"corpus":"fixture-source","path":"fixture-source/a.md","chunks":1,"chars":131}
+{"id":2,"corpus":"fixture-source","path":"fixture-source/b.txt","chunks":1,"chars":65}
+{"id":3,"corpus":"fixture-source","path":"fixture-source/d.tex","chunks":1,"chars":61}
+{"id":4,"corpus":"fixture-source","path":"fixture-source/sub/c.rst","chunks":1,"chars":83}

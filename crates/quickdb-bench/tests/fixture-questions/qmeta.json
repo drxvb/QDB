@@ -1,0 +1,8 @@
+{
+  "model": "deterministic-random-v1",
+  "dim": 8,
+  "count": 5,
+  "no_embed": true,
+  "questions_sha256": "945b8e0c213a81e8abba4c66124eac2dff86c05737fa9b06f97d1c39672c2344",
+  "qvectors_sha256": "4d9f3aa0254842d98c928e66369782791d41d5dc5d844ea33ed0380075714512"
+}

@@ -1,0 +1,24 @@
+[package]
+name = "quickdb-sqlitevec"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[dependencies]
+quickdb-api = { path = "../quickdb-api" }
+rusqlite = { version = "0.43", features = ["bundled", "fallible_uint"] }
+sqlite-vec = "=0.1.9"
+
+[dev-dependencies]
+quickdb-bench = { path = "../quickdb-bench" }
+tempfile = "3"
+
+# Same release profile as the root workspace, so that the comparison is like for like.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = 1

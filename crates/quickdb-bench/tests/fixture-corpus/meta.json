@@ -1,0 +1,26 @@
+{
+  "chunks": 4,
+  "docs": 4,
+  "edges": 11,
+  "directories": 2,
+  "dim": 8,
+  "model": "deterministic-random-v1",
+  "roots": [
+    "crates/quickdb-bench/tests/fixture-source"
+  ],
+  "per_corpus": {
+    "fixture-source": {
+      "chunks": 4,
+      "docs": 4
+    }
+  },
+  "start_time": "2026-11-18T17:01:45.602952+00:00",
+  "end_time": "2026-11-18T17:01:45.642305+00:00",
+  "skipped": {
+    "too_large": 0,
+    "unreadable": 0,
+    "invalid_utf8": 0
+  },
+  "no_embed": true,
+  "vector_bytes": 128
+}

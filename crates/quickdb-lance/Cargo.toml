@@ -1,0 +1,31 @@
+[package]
+name = "quickdb-lance"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+quickdb-api = { path = "../quickdb-api" }
+# 0.41.0 needs Rust 1.94. 0.40.0, 0.39.0 and 0.38.0 all fail to compile without `remote`
+# (src/job.rs uses Error::Http, defined only under that feature), so `remote` is on. It only
+# compiles in the LanceDB Cloud client (reqwest/tonic); a local path never uses it.
+# No cloud object stores (aws/gcs/azure) and no embedding providers.
+lancedb = { version = "=0.40.0", default-features = false, features = ["remote"] }
+arrow-array = "58"
+arrow-schema = "58"
+futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+quickdb-bench = { path = "../quickdb-bench" }
+
+# Own workspace. Resolver 3 keeps the lock file on crates that accept Rust 1.91.
+[workspace]
+resolver = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = 1

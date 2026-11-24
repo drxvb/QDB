@@ -1,0 +1,5 @@
+905a4bc025a63553aff1da9af0b9efcd5c18beec6e6ab2c25428f24a696aa19b *sqlite-vec.c
+eba84318f6a0c43ecacc9769bf967af345791760e1eebb8ad3b200ea0a7afbc7 *sqlite-vec-diskann.c
+0506a3c493990eb80466ae8c0fdcf1e3fa4b63955713c053e7350b7451ec7c39 *sqlite-vec-ivf.c
+50cd3ecc0fd0b5b75900821e2b9d1a4d1157da589c39bd1faa8749e047d8fc14 *sqlite-vec-ivf-kmeans.c
+06f26bb3c51ea4c51fbae2011a47c06440f2c1d43820a6eb65732476abc3450c *sqlite-vec-rescore.c

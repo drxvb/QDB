@@ -1,0 +1,4 @@
+{"id":1000000,"doc_id":1,"corpus":"fixture-source","path":"fixture-source/a.md","seq":0,"chars":130,"text":"# Small research corpus\n\nArabic logical order: العربية لغة جميلة.\n\nRead the [second document](b.txt) and [nested note](sub/c.rst)."}
+{"id":1000001,"doc_id":2,"corpus":"fixture-source","path":"fixture-source/b.txt","seq":0,"chars":64,"text":"A second short document for exact search and persistence checks."}
+{"id":1000002,"doc_id":3,"corpus":"fixture-source","path":"fixture-source/d.tex","seq":0,"chars":60,"text":"\\section{Research}\nA fourth short text with symbols $x + y$."}
+{"id":1000003,"doc_id":4,"corpus":"fixture-source","path":"fixture-source/sub/c.rst","seq":0,"chars":82,"text":"Nested note\n===========\n\nA directory to document edge belongs in the corpus graph."}

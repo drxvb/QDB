@@ -1,0 +1,34 @@
+# cargo-deny policy for the root workspace. Run: cargo deny check licenses bans sources
+# Licence policy: MIT, Apache-2.0, BSD, Zlib, Unicode and Unlicense only (see evidence/relprep-licences.md).
+
+[graph]
+targets = []
+all-features = false
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+[bans]
+multiple-versions = "warn"
+# The path dependencies between the workspace crates carry no version yet, which crates.io rejects.
+# That is a publish blocker tracked in evidence/relprep-gaps.md, so it is a warning here, not a CI failure.
+wildcards = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[advisories]
+# Needs network access to fetch the RustSec database.
+ignore = []
