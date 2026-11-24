@@ -13,6 +13,7 @@ Run: python agent_memory.py
 import math
 import re
 import shutil
+import sys
 import tempfile
 
 import quickdb
@@ -63,6 +64,9 @@ class Memory:
 
 
 def main():
+    # Arabic output on consoles whose default encoding is not UTF-8 (Windows).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     path = tempfile.mkdtemp(prefix="qdb-agent-memory-")
     try:
         mem = Memory(path)
